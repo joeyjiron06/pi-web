@@ -1,0 +1,173 @@
+/**
+ * Prompt Area component styles.
+ *
+ * These are the hand-authored styles the components depend on (chips, the
+ * tap ripple, markdown markers, and stable selectors for the bars). They
+ * live in the `components` layer so consumer utilities win over them.
+ */
+@layer components {
+
+
+  .prompt-area-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    vertical-align: baseline;
+    margin: 0 1px;
+    background-color: var(--secondary);
+    border-color: var(--border);
+    color: var(--foreground);
+    transition: background-color 0.2s ease, transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .prompt-area-chip:hover {
+    background-color: color-mix(in srgb, var(--secondary) 80%, var(--foreground) 20%);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 10%, transparent);
+  }
+
+  .prompt-area-chip:active {
+    transform: scale(0.93);
+    background-color: color-mix(in srgb, var(--secondary) 70%, var(--foreground) 30%);
+    box-shadow: 0 0 0 transparent;
+    transition: background-color 0.05s ease, transform 0.08s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.05s ease;
+  }
+
+  @keyframes prompt-area-chip-ripple {
+    0% {
+      transform: scale(0);
+      opacity: 0.4;
+    }
+
+    100% {
+      transform: scale(2.5);
+      opacity: 0;
+    }
+  }
+
+  .prompt-area-chip-ripple {
+    position: absolute;
+    border-radius: 50%;
+    width: 100%;
+    aspect-ratio: 1;
+    background: color-mix(in srgb, var(--foreground) 15%, transparent);
+    pointer-events: none;
+    animation: prompt-area-chip-ripple 0.45s ease-out forwards;
+  }
+
+  .prompt-area-md-marker {
+    font-size: 0;
+    display: inline;
+  }
+
+  /* Headings. The "## " stays in the model inside a zero-size marker, so only
+     the text after it is sized up. inline-block gives the line its own box, so
+     consecutive headings don't collide the way bare inline spans would, and
+     `--prompt-area-heading-*` lets consumers retune the scale. */
+  .prompt-area-md-heading {
+    display: inline-block;
+    padding-top: 0.35em;
+  }
+
+  .prompt-area-md-heading-text {
+    font-weight: var(--prompt-area-heading-weight, 600);
+    line-height: 1.25;
+  }
+
+  [data-md-heading='1'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-1, 1.5rem);
+  }
+
+  [data-md-heading='2'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-2, 1.25rem);
+  }
+
+  [data-md-heading='3'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-3, 1.125rem);
+  }
+
+  [data-md-heading='4'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-4, 1rem);
+  }
+
+  [data-md-heading='5'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-5, 0.9375rem);
+  }
+
+  /* H6 is conventionally the quiet one — same size as body, set apart by
+     colour rather than scale. */
+  [data-md-heading='6'] .prompt-area-md-heading-text {
+    font-size: var(--prompt-area-heading-6, 0.875rem);
+    color: var(--muted-foreground);
+  }
+
+  /* The raw U+2022 glyph only inks ~5px, so hide it and draw the bullet as a
+     precise CSS dot. The "•" character stays in the span (font-size: 0) so the
+     segment model and caret are unaffected. `--prompt-area-bullet-size` (default
+     6px) lets consumers retune the diameter. */
+  .prompt-area-list-bullet {
+    font-size: 0;
+    /* Center the dot on the text: inline-flex keeps `align-items` referencing
+       the real line box, while `vertical-align: middle` positions the span
+       against the editor's x-height (not the span's own zeroed font). The small
+       upward nudge optically seats it on the text's midline. */
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    transform: translateY(-1.5px);
+    /* Extra breathing room between the dot and the text (on top of the space
+       character that follows the "•" in the model). Uses px, not em, because
+       the span's font-size is 0 (which would collapse any em value). */
+    margin-right: 4px;
+  }
+
+  .prompt-area-list-bullet::before {
+    content: '';
+    width: var(--prompt-area-bullet-size, 6px);
+    height: var(--prompt-area-bullet-size, 6px);
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Nested-list indentation: the original 2-space run stays inside the span (so
+     the model and caret are unaffected) while `width` renders a wide, Notion-
+     like gap that scales per level. `--prompt-area-indent-size` (per level) lets
+     consumers retune the depth. */
+  .prompt-area-list-indent {
+    display: inline-block;
+    white-space: pre;
+  }
+
+  .prompt-area-chip--inline {
+    padding: 0;
+    border-radius: 0;
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .action-bar {
+    /* Base styles for action-bar; Tailwind utilities handle the layout.
+       This class exists as a stable selector for consumer overrides. */
+  }
+
+  .status-bar {
+    /* Base styles for status-bar; Tailwind utilities handle the layout.
+       This class exists as a stable selector for consumer overrides. */
+  }
+
+  /* Honour reduced-motion for the auto-grow editor. Its height / min-height
+     transition is applied via inline styles (e.g. the compact prompt area's
+     collapse/expand), so it sits outside Tailwind's `motion-reduce` variant
+     and needs an explicit override here. */
+  @media (prefers-reduced-motion: reduce) {
+    .prompt-area-editor {
+      transition: none !important;
+    }
+  }
+}
