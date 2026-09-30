@@ -1,87 +1,62 @@
-# Welcome to React Router!
+# Pi Web
 
-A modern, production-ready template for building full-stack React applications using React Router.
+Pi Web lets you use the Pi Coding SDK through a web interface. It aims for near parity with the TUI application, but intentionally leaves out a few things I do not use.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+I built this as a personal project and am putting it out there for you to fork and use however you want, with no guarantees.
 
-## Features
+![Pi web Screenshot](./pi-web.jpeg)
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+## Why a web interface?
 
-## Getting Started
+I prefer using Pi through a web interface because I can control it remotely from my phone without installing an extra app. My setup uses a Tailscale VPN, which lets me access my server from anywhere.
 
-### Installation
+The interface looks and behaves somewhat like ChatGPT or Claude Desktop. The difference is that, instead of installing a desktop app, you run Pi Web as a simple Node.js server like any other project.
 
-Install the dependencies:
+## How it works
 
-```bash
-npm install
-```
+Pi Web is a full-stack application. It uses React Router in framework mode to render pages and handle all back-end processing.
 
-### Development
+It uses the credentials and configuration from the Pi CLI, so you must configure the CLI before running the server.
 
-Start the development server with HMR:
+Pi Web also comes with its own CLI. Run it with the help option to see the available commands and options.
 
-```bash
-npm run dev
-```
+## Staying up to date
 
-Your application will be available at `http://localhost:5173`.
+Pi Web checks once a day for a newer Pi SDK and tells you about it in two places.
 
-## Building for Production
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-## Deployment
-
-### Docker Deployment
-
-To build and run using Docker:
-
-```bash
-docker build -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
+In the terminal, `pi-web install`, `start`, `restart` and `reload` offer to update before they run:
 
 ```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
+Pi SDK update available: 0.85.1 -> 0.99.2
+Update now? [y/N]
 ```
 
-## Styling
+Answer no and you will not be asked again until the next day. `pi-web status` and `pi-web doctor` mention it without asking, and never hit the network.
 
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
+You can also check whenever you like:
 
----
+```sh
+pi-web update           # check, confirm, install, rebuild, restart
+pi-web update --check   # report what is available, change nothing
+pi-web update --yes     # skip the confirmation
+```
 
-Built with ❤️ using React Router.
+In the browser, a toast shows the same thing with the command to run. Dismiss it and it stays quiet until the next day.
+
+An update stops the server, runs `pnpm add` for every `@earendil-works/*` package at the same version, rebuilds, and starts it again. If the install or the build fails, `package.json`, `pnpm-lock.yaml` and the previous `build/` are all restored and the server comes back on the old version.
+
+A successful update changes `package.json` and `pnpm-lock.yaml`, so commit them when you are happy. To go back:
+
+```sh
+git checkout package.json pnpm-lock.yaml && pnpm install && pi-web reload
+```
+
+The `pi-web` command comes from the `bin` entry in `package.json`. Run `pnpm link --global` once in the project to get it on your PATH.
+
+## Security
+
+Pi Web is not meant to be deployed to or accessed through the public internet. It is designed to run locally on your machine and only be accessed by devices on your private network, such as through your LAN or a VPN.
+
+If you expose it to the public internet, you will need to add your own authentication and authorization. Even with those protections, doing so can be a serious security risk. Pi Web runs a coding agent that can execute commands on your computer, which means it may be able to read files, change code, install software, or perform almost any other action available to your user account.
+
+I did not build permission handling or restrictions into this project because I personally do not use them for my agent harnesses. If you need approval prompts, command restrictions, filesystem limits, or other safeguards, you will need to build those protections yourself.

@@ -4,12 +4,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { userInfo, release } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  checkForUpdate,
+  confirmPrompt,
+  markDeclined,
+  runUpdate,
+} from "./lib/updates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 const PM2_APP_NAME = "pi-web";
 const VITE_PORT = 5000;
 const LOCAL_URL = `http://localhost:${VITE_PORT}`;
+
+/**
+ * Commands that consult the registry (once per calendar day) and may prompt.
+ *
+ * Deliberately not every command. `stop` and `uninstall` are the wrong moment
+ * to offer an update, `logs` blocks on a tail, and `version`/`help` must stay
+ * instant. `status` and `doctor` report from cache without a network call.
+ */
+const UPDATE_PROMPT_COMMANDS = new Set(["install", "start", "restart", "reload"]);
 
 function run(command, args, opts = {}) {
   const result = spawnSync(command, args, {
@@ -89,10 +104,12 @@ function ensurePm2Installed() {
 
 // ---------- install / uninstall ----------
 
-async function install() {
+async function install({ skipBuild = false } = {}) {
   ensurePm2Installed();
-  console.log("Building pi-web...");
-  run("pnpm", ["build"], { check: true, cwd: PROJECT_DIR });
+  if (!skipBuild) {
+    console.log("Building pi-web...");
+    run("pnpm", ["build"], { check: true, cwd: PROJECT_DIR });
+  }
   await startProcess();
 
   // Persist the process list so PM2 restores pi-web after the daemon restarts.
@@ -175,19 +192,174 @@ async function stopProcess() {
 
 // Stop -> build -> start. The server serves ./build output and Windows locks
 // those files while running, so the process must be stopped before rebuilding.
-async function reload() {
+//
+// `skipBuild` is set when an update already rebuilt, so this doesn't spend
+// another minute producing the same output.
+async function reload({ skipBuild = false } = {}) {
   await stopProcess();
 
-  console.log("Building pi-web...");
-  const buildStatus = run("pnpm", ["build"], { cwd: PROJECT_DIR });
-  if (buildStatus !== 0) {
-    console.error("\nBuild failed — restarting the previous build instead.");
-    await startProcess();
-    process.exit(buildStatus);
+  if (!skipBuild) {
+    console.log("Building pi-web...");
+    const buildStatus = run("pnpm", ["build"], { cwd: PROJECT_DIR });
+    if (buildStatus !== 0) {
+      console.error("\nBuild failed — restarting the previous build instead.");
+      await startProcess();
+      process.exit(buildStatus);
+    }
   }
 
   await startProcess();
   console.log(`Reloaded pi-web.`);
+}
+
+// ---------- updates ----------
+
+/**
+ * Stop the server, install the new Pi packages, rebuild.
+ *
+ * Safe to run from here and *not* from inside the served app: this process is
+ * your terminal, so `pm2 delete pi-web` cannot kill it halfway through.
+ *
+ * Leaves the server stopped on success so the caller can decide what to start.
+ * On failure the rollback has already restored the previous build, so the
+ * server is brought straight back up.
+ *
+ * @returns `true` when the build is fresh and the caller should skip its own.
+ */
+async function performUpdate(check) {
+  console.log(`\nUpdating Pi SDK ${check.current} -> ${check.latest}...\n`);
+
+  await stopProcess();
+
+  const steps = {
+    backup: "Backing up package.json and pnpm-lock.yaml...",
+    install: "Installing new packages...",
+    build: "Building pi-web...",
+    rollback: "Update failed — rolling back...",
+  };
+
+  const result = await runUpdate({
+    projectDir: PROJECT_DIR,
+    packages: check.packages,
+    to: check.latest,
+    onStep: (step) => console.log(`\n${steps[step] ?? step}`),
+  });
+
+  if (!result.ok) {
+    console.error(`\n✗ ${result.error}`);
+    await startProcess();
+    return false;
+  }
+
+  console.log(`\n✓ Pi SDK updated to ${check.latest}.`);
+  console.log(
+    `  package.json and pnpm-lock.yaml changed — commit them when you're happy.`,
+  );
+  console.log(
+    `  To revert: git checkout package.json pnpm-lock.yaml && pnpm install && pi-web reload`,
+  );
+  return true;
+}
+
+/**
+ * The daily check that runs before a gated command.
+ *
+ * @returns `true` when an update was installed and the build is already fresh.
+ */
+async function maybePromptForUpdate(command) {
+  if (!UPDATE_PROMPT_COMMANDS.has(command)) return false;
+
+  const check = await checkForUpdate({ projectDir: PROJECT_DIR });
+  if (!check?.updateAvailable || check.declined) return false;
+
+  console.log(`\nPi SDK update available: ${check.current} -> ${check.latest}`);
+
+  const answer = await confirmPrompt("Update now?");
+
+  if (answer === null) {
+    // no TTY to ask on -- a prompt here would hang forever
+    console.log(`Run \`pi-web update\` to install it.\n`);
+    return false;
+  }
+
+  if (!answer) {
+    markDeclined(PROJECT_DIR);
+    console.log(`Skipped. You won't be asked again today.\n`);
+    return false;
+  }
+
+  return await performUpdate(check);
+}
+
+/** `pi-web update [--check] [--yes]` */
+async function updateCommand(args) {
+  const checkOnly = args.includes("--check");
+  const assumeYes = args.includes("--yes") || args.includes("-y");
+
+  console.log("Checking for Pi SDK updates...");
+  const check = await checkForUpdate({ projectDir: PROJECT_DIR, force: true });
+
+  if (!check) {
+    console.error(
+      "Could not check for updates. Check your network and the npm token in ~/.npmrc.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!check.updateAvailable) {
+    console.log(`✓ Pi SDK is up to date (${check.current}).`);
+    return;
+  }
+
+  console.log(`Pi SDK update available: ${check.current} -> ${check.latest}`);
+  for (const entry of check.packages) {
+    console.log(`  ${entry.name}  ${entry.current ?? "(missing)"} -> ${entry.latest}`);
+  }
+
+  // `--check` deliberately leaves `declined` alone, so asking "is there an
+  // update?" does not silence today's prompt.
+  if (checkOnly) {
+    console.log(`\nRun \`pi-web update\` to install it.`);
+    return;
+  }
+
+  if (!assumeYes) {
+    const answer = await confirmPrompt("Update now?");
+    if (answer === null) {
+      console.error(
+        "No terminal to prompt on. Re-run with --yes to update without asking.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (!answer) {
+      markDeclined(PROJECT_DIR);
+      console.log("Skipped. You won't be asked again today.");
+      return;
+    }
+  }
+
+  const updated = await performUpdate(check);
+  if (!updated) {
+    process.exitCode = 1;
+    return;
+  }
+
+  await startProcess();
+}
+
+/** A one-line note for `status` and `doctor`. Reads the cache, never the network. */
+async function printCachedUpdateNotice(indent = "  ") {
+  const check = await checkForUpdate({
+    projectDir: PROJECT_DIR,
+    cachedOnly: true,
+  });
+  if (check?.updateAvailable) {
+    console.log(
+      `${indent}Update:  Pi SDK ${check.current} -> ${check.latest} (run: pi-web update)`,
+    );
+  }
 }
 
 async function serviceAction(action) {
@@ -224,6 +396,7 @@ async function status() {
   }
   console.log(`  Project: ${PROJECT_DIR}`);
   if (up) console.log(`  Local:   ${LOCAL_URL}`);
+  await printCachedUpdateNotice();
 
   if (!up) process.exitCode = 1;
 }
@@ -232,7 +405,7 @@ function logs() {
   run("pm2", ["logs", PM2_APP_NAME, "--lines", "200"]);
 }
 
-function doctor() {
+async function doctor() {
   console.log(`Platform: Windows (${release()})`);
   console.log(`Service backend: PM2`);
   console.log(`Project: ${PROJECT_DIR}`);
@@ -305,6 +478,7 @@ function doctor() {
   }
 
   console.log(`  User: ${userInfo().username}`);
+  await printCachedUpdateNotice();
 
   if (!ok) process.exitCode = 1;
 }
@@ -321,11 +495,21 @@ Usage:
   pi-web stop          Stop the server
   pi-web restart       Restart the server
   pi-web reload        Stop the server, rebuild, then start it again
+  pi-web update        Update the Pi SDK packages, rebuild, restart
   pi-web status        Show server status
   pi-web logs          Tail server logs (via PM2)
   pi-web doctor        Run diagnostic checks
   pi-web version       Show version
   pi-web help          Show this help
+
+Update options:
+  --check              Report what is available; don't install anything
+  --yes, -y            Skip the confirmation prompt
+
+Updates:
+  install, start, restart and reload check for a new Pi SDK once a day and
+  offer to install it. Answer "no" and you won't be asked again until the
+  next day. Run \`pi-web update\` any time to check on demand.
 
 Ports:
   Local: ${LOCAL_URL}
@@ -333,11 +517,15 @@ Ports:
 }
 
 async function main() {
-  const [command = "help"] = process.argv.slice(2);
+  const [command = "help", ...args] = process.argv.slice(2);
+
+  // Runs before the command so you are never surprised mid-way. When it
+  // returns true the build is already fresh, so the command skips its own.
+  const didUpdate = await maybePromptForUpdate(command);
 
   switch (command) {
     case "install":
-      await install();
+      await install({ skipBuild: didUpdate });
       break;
     case "uninstall":
       await uninstall();
@@ -348,7 +536,10 @@ async function main() {
       await serviceAction(command);
       break;
     case "reload":
-      await reload();
+      await reload({ skipBuild: didUpdate });
+      break;
+    case "update":
+      await updateCommand(args);
       break;
     case "status":
       await status();
@@ -357,7 +548,7 @@ async function main() {
       logs();
       break;
     case "doctor":
-      doctor();
+      await doctor();
       break;
     case "version":
     case "--version":

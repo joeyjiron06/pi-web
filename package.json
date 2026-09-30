@@ -2,6 +2,9 @@
   "name": "pi-web-2",
   "private": true,
   "type": "module",
+  "bin": {
+    "pi-web": "./bin/pi-web.js"
+  },
   "scripts": {
     "postinstall": "node ./bin/sync-monaco.js",
     "sync:monaco": "node ./bin/sync-monaco.js",

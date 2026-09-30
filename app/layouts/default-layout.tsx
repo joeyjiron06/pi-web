@@ -1,6 +1,7 @@
 import { data, Outlet } from "react-router";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import AppSidebar from "~/components/app-sidebar";
+import UpdateToast from "~/components/update-toast";
 import { SidebarProvider } from "~/components/ui/sidebar";
 import { useCookie } from "~/hooks/use-cookie";
 import { parseSkillBlock } from "~/lib/skill-block";
@@ -75,6 +76,10 @@ export default function DefaultLayout({ loaderData }: Route.ComponentProps) {
         projects={loaderData.projects}
         savedSessionsPromise={loaderData.savedSessions}
       />
+
+      {/* renders nothing; raises a toast when a new Pi SDK is out. Mounted
+          here rather than in root so it follows the sidebar's lifetime. */}
+      <UpdateToast />
 
       {/* `min-h-0` so a route that owns its own flex column (session page:
           scrollable transcript + pinned composer) can actually constrain its

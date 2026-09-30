@@ -26,6 +26,7 @@ export default [
   route("skills", "routes/skills.ts"),
   route("models", "routes/models.ts"),
   route("projects", "routes/projects.ts"),
+  route("updates", "routes/updates.ts"),
   route("sessions/events", "routes/session/session-events.ts"),
   route("prompt", "routes/prompt.tsx"),
 ] satisfies RouteConfig;
